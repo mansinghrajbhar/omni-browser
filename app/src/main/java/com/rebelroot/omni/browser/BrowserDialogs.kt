@@ -355,27 +355,28 @@ fun PermissionPromptDialog(
     val GEO  = org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION
     val NOTIF= org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION
     val DRM  = org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS
+    val STORAGE = org.mozilla.geckoview.GeckoSession.PermissionDelegate.PERMISSION_STORAGE_ACCESS
 
     val icon = when (prompt.permissionType) {
-        GEO   -> Icons.Rounded.LocationOn
-        NOTIF -> Icons.Rounded.NotificationsActive
-        DRM   -> Icons.Rounded.VpnKey
-        8     -> Icons.Rounded.Storage
-        else  -> Icons.Rounded.Info
+        GEO     -> Icons.Rounded.LocationOn
+        NOTIF   -> Icons.Rounded.NotificationsActive
+        DRM     -> Icons.Rounded.VpnKey
+        STORAGE -> Icons.Rounded.Storage
+        else    -> Icons.Rounded.Info
     }
     val title = when (prompt.permissionType) {
-        GEO   -> "Location Access"
-        NOTIF -> "Notification Access"
-        DRM   -> "DRM Media Access"
-        8     -> "Storage Access"
-        else  -> "Permission Request"
+        GEO     -> "Location Access"
+        NOTIF   -> "Notification Access"
+        DRM     -> "DRM Media Access"
+        STORAGE -> "Storage Access"
+        else    -> "Permission Request"
     }
     val description = when (prompt.permissionType) {
-        GEO   -> "wants to access your precise physical location."
-        NOTIF -> "wants to send you push notifications."
-        DRM   -> "wants to verify device DRM keys for secure HD playback."
-        8     -> "wants to access local storage for offline content."
-        else  -> "is requesting a browser permission."
+        GEO     -> "wants to access your precise physical location."
+        NOTIF   -> "wants to send you push notifications."
+        DRM     -> "wants to verify device DRM keys for secure HD playback."
+        STORAGE -> "wants to access local storage for offline content."
+        else    -> "is requesting a browser permission."
     }
     val risk = when (prompt.permissionType) {
         GEO   -> "Your location reveals where you are physically. Only allow trusted sites."

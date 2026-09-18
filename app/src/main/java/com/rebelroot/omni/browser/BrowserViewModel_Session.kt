@@ -161,18 +161,30 @@ internal fun BrowserViewModel.setupTabSessionListeners(tab: TabState, context: C
         ): GeckoResult<Int>? {
             Log.d(TAG, "onContentPermissionRequest: type=${permission.permission}, uri=${permission.uri}")
 
-            // Auto-grant Storage Access and Identity permissions for verified auth origins.
-            val isAuthOrigin = OriginVerifier.isExactOriginMatch(permission.uri, "accounts.google.com") ||
-                               OriginVerifier.isSubdomainOf(permission.uri, "google.com") ||
-                               OriginVerifier.isSubdomainOf(permission.uri, "appleid.apple.com") ||
-                               OriginVerifier.isSubdomainOf(permission.uri, "facebook.com")
-            if (isAuthOrigin || permission.permission == 6 || permission.permission == 7 || permission.permission == 8) {
-                Log.i(TAG, "Auto-granting auth/storage permission (${permission.permission}) for ${permission.uri}")
-                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW)
+            // PERMISSION_TRACKING (7): Always DENY to keep GeckoView's anti-tracking protection active.
+            // Returning ALLOW here would disable ALL tracking protection for the requesting site.
+            if (permission.permission == GeckoSession.PermissionDelegate.PERMISSION_TRACKING) {
+                Log.d(TAG, "Denying PERMISSION_TRACKING for ${permission.uri} — tracking protection stays active")
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY)
+            }
+
+            // PERMISSION_STORAGE_ACCESS (8): Only grant for verified auth origins that need
+            // cross-site cookie access for OAuth/login flows. Deny for all other third parties.
+            if (permission.permission == GeckoSession.PermissionDelegate.PERMISSION_STORAGE_ACCESS) {
+                val isAuthOrigin = OriginVerifier.isExactOriginMatch(permission.uri, "accounts.google.com") ||
+                                   OriginVerifier.isExactOriginMatch(permission.uri, "accounts.youtube.com") ||
+                                   OriginVerifier.isExactOriginMatch(permission.uri, "appleid.apple.com") ||
+                                   OriginVerifier.isExactOriginMatch(permission.uri, "login.microsoftonline.com")
+                if (isAuthOrigin) {
+                    Log.i(TAG, "Granting PERMISSION_STORAGE_ACCESS for verified auth origin ${permission.uri}")
+                    return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW)
+                }
+                Log.d(TAG, "Denying PERMISSION_STORAGE_ACCESS for third-party ${permission.uri}")
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY)
             }
 
             // Auto-grant DRM (Widevine / EME) permission for media playback unless explicitly blocked
-            if (permission.permission == GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS || permission.permission == 5) {
+            if (permission.permission == GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS) {
                 val drmVal = getSitePermissionValue(permission.uri, "drm")
                 if (drmVal != "block") {
                     return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW)
@@ -190,11 +202,11 @@ internal fun BrowserViewModel.setupTabSessionListeners(tab: TabState, context: C
             }
 
             val permissionTypeStr = when (permission.permission) {
-                1 -> "location"
-                2 -> "notifications"
-                3 -> "camera"
-                4 -> "microphone"
-                5 -> "drm"
+                GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION -> "location"              // 0
+                GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION -> "notifications" // 1
+                GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE -> "storage"         // 2
+                // Camera and Microphone are handled via onMediaPermissionRequest, not here
+                GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS -> "drm"        // 6
                 else -> null
             }
 
@@ -849,6 +861,45 @@ internal fun BrowserViewModel.setupTabSessionListeners(tab: TabState, context: C
         }
     }
 
+    tab.session.historyDelegate = object : GeckoSession.HistoryDelegate {
+        override fun onHistoryStateChange(
+            session: GeckoSession,
+            historyList: GeckoSession.HistoryDelegate.HistoryList
+        ) {
+            if (recoveryCoordinator?.isStaleCallback(tab.id, tab.sessionGenerationId) == true) return
+            val idx = tabs.indexOfFirst { it.id == tab.id }
+            if (idx == -1) return
+            val currentTab = tabs[idx]
+            val list = ArrayList<SessionHistoryEntry>(historyList.size)
+            for (i in 0 until historyList.size) {
+                val item = historyList[i]
+                val uri = item.uri ?: ""
+                val title = item.title?.takeIf { it.isNotBlank() } ?: uri
+                list.add(SessionHistoryEntry(index = i, url = uri, title = title))
+            }
+            val currentIdx = historyList.currentIndex
+            val sessionCanGoBack = currentIdx > 0
+            val sessionCanGoForward = currentIdx < historyList.size - 1
+            val isHome = (currentTab.url == "about:blank" || currentTab.url.isEmpty())
+            val effectiveCanGoBack = if (isHome) false else (sessionCanGoBack || !isExternalIntentLaunch)
+            val effectiveCanGoForward = if (isHome) (!currentTab.lastWebUrl.isNullOrEmpty()) else sessionCanGoForward
+
+            tabs[idx] = currentTab.copy(
+                canGoBackInSession = sessionCanGoBack,
+                canGoForwardInSession = sessionCanGoForward,
+                canGoBack = effectiveCanGoBack,
+                canGoForward = effectiveCanGoForward,
+                sessionHistory = list
+            )
+            if (tab.id == activeTabId) {
+                canGoBack = effectiveCanGoBack
+                canGoForward = effectiveCanGoForward
+                activeSessionHistory = list
+                activeHistoryIndex = currentIdx
+            }
+        }
+    }
+
     tab.session.navigationDelegate = object : GeckoSession.NavigationDelegate {
         override fun onLocationChange(
             session: GeckoSession,
@@ -877,12 +928,19 @@ internal fun BrowserViewModel.setupTabSessionListeners(tab: TabState, context: C
                 }
 
                 val isHome = isBlankOrEmpty
-                tabs[idx] = tabs[idx].copy(
+                val lastUrl = if (!isHome) it else currentTab.lastWebUrl
+                val lastTitle = if (!isHome) (if (it == currentTab.url) currentTab.title else it) else currentTab.lastWebTitle
+                val effectiveCanGoBack = if (isHome) false else (currentTab.canGoBackInSession || !isExternalIntentLaunch)
+                val effectiveCanGoForward = if (isHome) (!lastUrl.isNullOrEmpty()) else currentTab.canGoForwardInSession
+
+                tabs[idx] = currentTab.copy(
                     url = it,
                     title = if (isHome) "New Tab" else tabs[idx].title,
                     savedSessionState = if (isHome) null else tabs[idx].savedSessionState,
-                    canGoBack = if (isHome) false else tabs[idx].canGoBack,
-                    canGoForward = if (isHome) false else tabs[idx].canGoForward,
+                    canGoBack = effectiveCanGoBack,
+                    canGoForward = effectiveCanGoForward,
+                    lastWebUrl = lastUrl,
+                    lastWebTitle = lastTitle,
                     settingsVersion = currentSettingsVersion
                 )
                 if (isHome) {
@@ -892,9 +950,9 @@ internal fun BrowserViewModel.setupTabSessionListeners(tab: TabState, context: C
 
                 if (tab.id == activeTabId) {
                     currentUrl = it
+                    canGoBack = effectiveCanGoBack
+                    canGoForward = effectiveCanGoForward
                     if (isHome) {
-                        canGoBack = false
-                        canGoForward = false
                         runCatching { session.stop() }
                     }
                     syncActiveSession(session)
@@ -914,24 +972,30 @@ internal fun BrowserViewModel.setupTabSessionListeners(tab: TabState, context: C
         }
 
         override fun onCanGoBack(session: GeckoSession, canGoBackValue: Boolean) {
-            val isHome = (tab.url == "about:blank" || tab.url.isEmpty())
-            val effective = if (isHome) false else canGoBackValue
             val idx = tabs.indexOfFirst { it.id == tab.id }
-            if (idx != -1) {
-                tabs[idx] = tabs[idx].copy(canGoBack = effective)
-            }
+            if (idx == -1) return
+            val currentTab = tabs[idx]
+            val isHome = (currentTab.url == "about:blank" || currentTab.url.isEmpty())
+            val effective = if (isHome) false else (canGoBackValue || !isExternalIntentLaunch)
+            tabs[idx] = currentTab.copy(
+                canGoBackInSession = canGoBackValue,
+                canGoBack = effective
+            )
             if (tab.id == activeTabId) {
                 canGoBack = effective
             }
         }
 
         override fun onCanGoForward(session: GeckoSession, canGoForwardValue: Boolean) {
-            val isHome = (tab.url == "about:blank" || tab.url.isEmpty())
-            val effective = if (isHome) false else canGoForwardValue
             val idx = tabs.indexOfFirst { it.id == tab.id }
-            if (idx != -1) {
-                tabs[idx] = tabs[idx].copy(canGoForward = effective)
-            }
+            if (idx == -1) return
+            val currentTab = tabs[idx]
+            val isHome = (currentTab.url == "about:blank" || currentTab.url.isEmpty())
+            val effective = if (isHome) (!currentTab.lastWebUrl.isNullOrEmpty()) else canGoForwardValue
+            tabs[idx] = currentTab.copy(
+                canGoForwardInSession = canGoForwardValue,
+                canGoForward = effective
+            )
             if (tab.id == activeTabId) {
                 canGoForward = effective
             }
@@ -1572,16 +1636,17 @@ internal fun BrowserViewModel.setupTabSessionListeners(tab: TabState, context: C
 
                 tabs[idx] = tabs[idx].copy(savedSessionState = sessionState)
                 // Debounced durable persistence (incognito tabs are skipped inside the persistence layer).
+                val current = tabs[idx]
                 sessionStatePersistence?.requestPersist(
                     tabId = tab.id,
                     sessionState = sessionState,
                     metadata = com.rebelroot.omni.browser.session.OmniSessionState.TabMetadata(
-                        title = tab.title,
-                        url = tab.url,
-                        isIncognito = tab.isIncognito,
-                        lastActiveTime = tab.lastActiveTime,
-                        canGoBack = tab.canGoBack,
-                        canGoForward = tab.canGoForward
+                        title = current.title,
+                        url = current.url,
+                        isIncognito = current.isIncognito,
+                        lastActiveTime = current.lastActiveTime,
+                        canGoBack = current.canGoBack,
+                        canGoForward = current.canGoForward
                     )
                 )
                 com.rebelroot.omni.browser.session.SessionRecoveryDiagnostics.logSessionStateChanged(tab.id, tab.sessionGenerationId, accepted = true)

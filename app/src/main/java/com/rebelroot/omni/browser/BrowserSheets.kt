@@ -5008,13 +5008,19 @@ fun AllInOneMenuSheet(
                     icon = Icons.Rounded.ArrowBack,
                     label = stringResource(id = R.string.menu_back),
                     enabled = canGoBack,
-                    onClick = { viewModel.goBack() }
+                    onClick = {
+                        onDismissRequest()
+                        viewModel.goBack()
+                    }
                 )
                 AllInOneBottomAction(
                     icon = Icons.Rounded.ArrowForward,
                     label = stringResource(id = R.string.menu_forward),
                     enabled = canGoForward,
-                    onClick = { viewModel.goForward() }
+                    onClick = {
+                        onDismissRequest()
+                        viewModel.goForward()
+                    }
                 )
                 AllInOneBottomAction(
                     icon = Icons.Rounded.Share,

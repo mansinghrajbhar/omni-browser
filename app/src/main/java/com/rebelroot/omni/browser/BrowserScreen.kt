@@ -872,6 +872,8 @@ fun BrowserScreen(
 
     // Exit bottom sheet — shown on first back press from home screen
     var showExitSheet by remember { mutableStateOf(false) }
+    var showSessionHistorySheet by remember { mutableStateOf(false) }
+    var isBackHistorySheet by remember { mutableStateOf(true) }
 
     // Only intercept back when the browser screen is actually in focus.
     // The video player screen has its own BackHandler that takes priority when it is
@@ -884,23 +886,15 @@ fun BrowserScreen(
             return@BackHandler
         }
         if (!showHomeScreen) {
-            if (viewModel.canGoBack) {
-                // Navigate the active tab's GeckoSession back safely
-                try { viewModel.goBack() } catch (e: Exception) {
-                    android.util.Log.w("BackHandler", "goBack() error, handling back stack: ${e.message}")
-                    if (viewModel.isExternalIntentLaunch && activity != null) {
-                        if (activity.isTaskRoot) activity.finishAndRemoveTask() else activity.finish()
-                    } else {
-                        viewModel.navigateHomeDirectly()
-                    }
+            try {
+                viewModel.goBack()
+            } catch (e: Exception) {
+                android.util.Log.w("BackHandler", "goBack() error, handling back stack: ${e.message}")
+                if (viewModel.isExternalIntentLaunch && activity != null) {
+                    if (activity.isTaskRoot) activity.finishAndRemoveTask() else activity.finish()
+                } else {
+                    viewModel.returnToHomeScreen()
                 }
-            } else if (viewModel.isExternalIntentLaunch && activity != null) {
-                // Session launched via external ACTION_VIEW intent (e.g., RSS app) with no web history left -> return to caller's task stack
-                android.util.Log.i("BackHandler", "🔙 External intent back target reached: returning to host app")
-                if (activity.isTaskRoot) activity.finishAndRemoveTask() else activity.finish()
-            } else {
-                // No history left – go to home screen without touching session
-                viewModel.navigateHomeDirectly()
             }
         } else {
             if (viewModel.isExternalIntentLaunch && activity != null) {
@@ -1073,6 +1067,20 @@ fun BrowserScreen(
         }
     }
 
+    if (showSessionHistorySheet) {
+        val entries = if (isBackHistorySheet) viewModel.getBackHistory() else viewModel.getForwardHistory()
+        SessionHistorySheet(
+            isBackHistory = isBackHistorySheet,
+            historyEntries = entries,
+            isDarkTheme = viewModel.isDarkThemeEnabled,
+            isAmoled = viewModel.isAmoledMode,
+            onSelectEntry = { entry ->
+                viewModel.gotoHistoryIndex(entry.index)
+            },
+            onDismissRequest = { showSessionHistorySheet = false }
+        )
+    }
+
     // Uncaught exception crash recovery notification dialog
     val crashPrefs = remember { context.getSharedPreferences("omni_crash_prefs", android.content.Context.MODE_PRIVATE) }
     var crashMsg by remember { mutableStateOf(crashPrefs.getString("last_crash_msg", null)) }
@@ -1242,11 +1250,19 @@ fun BrowserScreen(
                                         isInputFocused = focused
                                     },
                                     focusRequester = focusRequester,
-                                    canGoBack = viewModel.canGoBack,
-                                    canGoForward = viewModel.canGoForward,
-                                    onBack = { viewModel.goBack() },
-                                    onForward = { viewModel.goForward() },
-                                    onHome = { viewModel.createNewTab(context, "about:blank") },
+                                     canGoBack = viewModel.canGoBack,
+                                     canGoForward = viewModel.canGoForward,
+                                     onBack = { viewModel.goBack() },
+                                     onForward = { viewModel.goForward() },
+                                     onLongBack = {
+                                         isBackHistorySheet = true
+                                         showSessionHistorySheet = true
+                                     },
+                                     onLongForward = {
+                                         isBackHistorySheet = false
+                                         showSessionHistorySheet = true
+                                     },
+                                     onHome = { viewModel.createNewTab(context, "about:blank") },
                                     onCommitUrl = { viewModel.loadUrl(it) },
                                     onClearInput = { inputUrl = androidx.compose.ui.text.input.TextFieldValue("") },
                                     currentUrl = viewModel.currentUrl,
@@ -1691,31 +1707,51 @@ fun BrowserScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Back
+                            val canBack = viewModel.canGoBack && !showHomeScreen
                             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                IconButton(
-                                    onClick = { viewModel.goBack() },
-                                    enabled = viewModel.canGoBack && !showHomeScreen,
-                                    modifier = Modifier.size(adaptiveNavTouch)
+                                Box(
+                                    modifier = Modifier
+                                        .size(adaptiveNavTouch)
+                                        .clip(CircleShape)
+                                        .combinedClickable(
+                                            enabled = canBack,
+                                            onClick = { viewModel.goBack() },
+                                            onLongClick = {
+                                                isBackHistorySheet = true
+                                                showSessionHistorySheet = true
+                                            }
+                                        ),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                         contentDescription = "Back",
-                                        tint = if (viewModel.canGoBack && !showHomeScreen) navContent else navContentMuted,
+                                        tint = if (canBack) navContent else navContentMuted,
                                         modifier = Modifier.size(config.innerIconSize)
                                     )
                                 }
                             }
                             // Forward
+                            val canForward = viewModel.canGoForward
                             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                IconButton(
-                                    onClick = { viewModel.goForward() },
-                                    enabled = viewModel.canGoForward,
-                                    modifier = Modifier.size(adaptiveNavTouch)
+                                Box(
+                                    modifier = Modifier
+                                        .size(adaptiveNavTouch)
+                                        .clip(CircleShape)
+                                        .combinedClickable(
+                                            enabled = canForward,
+                                            onClick = { viewModel.goForward() },
+                                            onLongClick = {
+                                                isBackHistorySheet = false
+                                                showSessionHistorySheet = true
+                                            }
+                                        ),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
                                         contentDescription = "Forward",
-                                        tint = if (viewModel.canGoForward) navContent else navContentMuted,
+                                        tint = if (canForward) navContent else navContentMuted,
                                         modifier = Modifier.size(config.innerIconSize)
                                     )
                                 }

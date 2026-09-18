@@ -597,7 +597,21 @@ fun PhoneAddressBar(
             }
         }
 
-
+        // 3-dot menu visible while searching in Top address bar layout —
+        // opens the same omnimenuDropdown used on the home page.
+        AnimatedVisibility(visible = isInputFocused && viewModel.addressBarPosition == "Top") {
+            IconButton(
+                onClick = { onShowMenuChange(true) },
+                modifier = Modifier.size(config.barIconSize)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "Menu",
+                    tint = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(config.innerIconSize)
+                )
+            }
+        }
 
         AnimatedVisibility(visible = !isInputFocused && (viewModel.addressBarPosition == "Top" || viewModel.addressBarPosition == "Split" || !viewModel.showBottomNavBar || viewModel.chromeNavBarEnabled)) {
             IconButton(

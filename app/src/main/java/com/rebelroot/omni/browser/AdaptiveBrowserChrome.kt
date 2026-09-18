@@ -26,6 +26,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -275,6 +277,7 @@ fun OmniTabStrip(
  * P3 (drops last of the secondaries): extensions (the active-extension badge is a
  *                    status signal, so it outlives tools).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AdaptiveTabletToolbar(
     inputUrl: TextFieldValue,
@@ -286,6 +289,8 @@ fun AdaptiveTabletToolbar(
     canGoForward: Boolean,
     onBack: () -> Unit,
     onForward: () -> Unit,
+    onLongBack: (() -> Unit)? = null,
+    onLongForward: (() -> Unit)? = null,
     onHome: () -> Unit,
     onCommitUrl: (String) -> Unit,
     onClearInput: () -> Unit,
@@ -357,23 +362,36 @@ fun AdaptiveTabletToolbar(
                 horizontalArrangement = Arrangement.spacedBy(gap)
             ) {
                 if (showNavigation) {
-                    IconButton(
-                        onClick = onBack,
-                        enabled = canGoBack && !isHomeScreen,
-                        modifier = Modifier.size(touch)
+                    val canBack = canGoBack && !isHomeScreen
+                    Box(
+                        modifier = Modifier
+                            .size(touch)
+                            .clip(CircleShape)
+                            .combinedClickable(
+                                enabled = canBack,
+                                onClick = onBack,
+                                onLongClick = onLongBack
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "Back",
-                            tint = if (canGoBack && !isHomeScreen) colors.content else colors.content.copy(alpha = 0.2f),
+                            tint = if (canBack) colors.content else colors.content.copy(alpha = 0.2f),
                             modifier = Modifier.size(metrics.toolbarIconSize)
                         )
                     }
 
-                    IconButton(
-                        onClick = onForward,
-                        enabled = canGoForward,
-                        modifier = Modifier.size(touch)
+                    Box(
+                        modifier = Modifier
+                            .size(touch)
+                            .clip(CircleShape)
+                            .combinedClickable(
+                                enabled = canGoForward,
+                                onClick = onForward,
+                                onLongClick = onLongForward
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowForward,

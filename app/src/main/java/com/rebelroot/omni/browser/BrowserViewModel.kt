@@ -1491,6 +1491,8 @@ class BrowserViewModel : ViewModel() {
     }
     var canGoBack by mutableStateOf(false)
     var canGoForward by mutableStateOf(false)
+    var activeSessionHistory by mutableStateOf<List<SessionHistoryEntry>>(emptyList())
+    var activeHistoryIndex by mutableStateOf(-1)
     var isDesktopMode by mutableStateOf(false)
         private set
 
@@ -2521,19 +2523,23 @@ class BrowserViewModel : ViewModel() {
         }
 
         val isHomeTab = (currentTab.url == "about:blank" || currentTab.url.isEmpty())
+        val effectiveCanGoBack = if (isHomeTab) false else (currentTab.canGoBackInSession || !isExternalIntentLaunch)
+        val effectiveCanGoForward = if (isHomeTab) (!currentTab.lastWebUrl.isNullOrEmpty()) else currentTab.canGoForwardInSession
         currentTab = currentTab.copy(
             lastActiveTime = System.currentTimeMillis(),
             savedSessionState = if (isHomeTab) null else currentTab.savedSessionState,
-            canGoBack = if (isHomeTab) false else currentTab.canGoBack,
-            canGoForward = if (isHomeTab) false else currentTab.canGoForward
+            canGoBack = effectiveCanGoBack,
+            canGoForward = effectiveCanGoForward
         )
         if (freshIdx != -1) {
             tabs[freshIdx] = currentTab
         }
         geckoSession = currentTab.session
         currentUrl = currentTab.url
-        canGoBack = if (isHomeTab) false else currentTab.canGoBack
-        canGoForward = if (isHomeTab) false else currentTab.canGoForward
+        canGoBack = effectiveCanGoBack
+        canGoForward = effectiveCanGoForward
+        activeSessionHistory = currentTab.sessionHistory
+        activeHistoryIndex = currentTab.sessionHistory.indexOfFirst { it.url == currentTab.url }.takeIf { it >= 0 } ?: -1
         if (isHomeTab) {
             sessionStatePersistence?.removeDurableState(tabId)
         }
@@ -2561,10 +2567,6 @@ class BrowserViewModel : ViewModel() {
         
         applySiteStyleToActiveTab()
         
-        // Restore the tab's own saved navigation state
-        canGoBack = if (isHomeTab) false else currentTab.canGoBack
-        canGoForward = if (isHomeTab) false else currentTab.canGoForward
-
         // Clear media list when switching tabs to ensure only active tab's media is tracked
         mediaInterceptor.clear()
         notifyPageNavigation()
@@ -2738,12 +2740,14 @@ class BrowserViewModel : ViewModel() {
             val isHome = (formattedUrl == "about:blank")
             val idx = tabs.indexOfFirst { it.id == tab.id }
             if (idx != -1) {
+                val effectiveCanGoBack = if (isHome) false else (tabs[idx].canGoBackInSession || !isExternalIntentLaunch)
+                val effectiveCanGoForward = if (isHome) (!tabs[idx].lastWebUrl.isNullOrEmpty()) else tabs[idx].canGoForwardInSession
                 tabs[idx] = tabs[idx].copy(
                     url = formattedUrl,
                     title = if (isHome) "New Tab" else formattedUrl,
                     savedSessionState = if (isHome) null else tabs[idx].savedSessionState,
-                    canGoBack = if (isHome) false else tabs[idx].canGoBack,
-                    canGoForward = if (isHome) false else tabs[idx].canGoForward,
+                    canGoBack = effectiveCanGoBack,
+                    canGoForward = effectiveCanGoForward,
                     isUriLoaded = true
                 )
             }
@@ -2752,10 +2756,11 @@ class BrowserViewModel : ViewModel() {
             }
             if (tab.id == activeTabId) {
                 currentUrl = formattedUrl
-                if (isHome) {
-                    canGoBack = false
-                    canGoForward = false
-                }
+                val active = tabs.find { it.id == tab.id }
+                val effectiveCanGoBack = if (isHome) false else ((active?.canGoBackInSession ?: false) || !isExternalIntentLaunch)
+                val effectiveCanGoForward = if (isHome) (!active?.lastWebUrl.isNullOrEmpty()) else (active?.canGoForwardInSession ?: false)
+                canGoBack = effectiveCanGoBack
+                canGoForward = effectiveCanGoForward
             }
             if (isHome) {
                 runCatching { tab.session.stop() }
@@ -2786,10 +2791,19 @@ class BrowserViewModel : ViewModel() {
         }
         val idx = tabs.indexOfFirst { it.id == tab.id }
         if (idx != -1) {
-            tabs[idx] = tabs[idx].copy(url = formattedUrl, title = "Loading...", isUriLoaded = true)
+            tabs[idx] = tabs[idx].copy(
+                url = formattedUrl,
+                title = "Loading...",
+                lastWebUrl = formattedUrl,
+                canGoBack = !isExternalIntentLaunch,
+                canGoForward = false,
+                isUriLoaded = true
+            )
         }
         if (tab.id == activeTabId) {
             currentUrl = formattedUrl
+            canGoBack = !isExternalIntentLaunch
+            canGoForward = false
         }
         tab.session.loadUri(formattedUrl)
     }
@@ -6146,7 +6160,7 @@ class BrowserViewModel : ViewModel() {
         sb.append("  dom.security.https_first: true\n")
         sb.append("  security.fileuri.strict_origin_policy: true\n")
         sb.append("  privacy.partition.network_state: true\n")
-        sb.append("  network.cookie.cookieBehavior: 5\n")
+        sb.append("  network.cookie.cookieBehavior: $cookieBehavior\n")
         sb.append("  ui.useAccessibilityTheme: ${if (accessibilityHighContrast) 1 else 0}\n")
         sb.append("  signon.autofillForms: true\n")
         sb.append("  dom.forms.autocomplete.formautofill: true\n")
@@ -6604,10 +6618,19 @@ class BrowserViewModel : ViewModel() {
         if (activeId != null) {
             val idx = tabs.indexOfFirst { it.id == activeId }
             if (idx != -1) {
-                tabs[idx] = tabs[idx].copy(url = formattedUrl, title = "Loading...", isUriLoaded = true)
+                tabs[idx] = tabs[idx].copy(
+                    url = formattedUrl,
+                    title = "Loading...",
+                    lastWebUrl = formattedUrl,
+                    canGoBack = !isExternalIntentLaunch,
+                    canGoForward = false,
+                    isUriLoaded = true
+                )
             }
         }
         currentUrl = formattedUrl
+        canGoBack = !isExternalIntentLaunch
+        canGoForward = false
         val targetSession = getActiveSession()
         val ctx = appContext ?: MainActivity.getActiveActivity()?.applicationContext
         if (ctx != null && !targetSession.isOpen) {
@@ -6622,8 +6645,20 @@ class BrowserViewModel : ViewModel() {
 
     fun goBack() {
         try {
-            val session = getActiveSession()
-            if (canGoBack && session.isOpen) session.goBack()
+            val activeTab = tabs.find { it.id == activeTabId } ?: return
+            val session = activeTab.session
+            if (activeTab.canGoBackInSession && session.isOpen) {
+                session.goBack(true)
+            } else if (isExternalIntentLaunch) {
+                val activity = MainActivity.getActiveActivity()
+                if (activity != null) {
+                    if (activity.isTaskRoot) activity.finishAndRemoveTask() else activity.finish()
+                } else {
+                    returnToHomeScreen()
+                }
+            } else if (currentUrl != "about:blank" && currentUrl.isNotEmpty()) {
+                returnToHomeScreen()
+            }
         } catch (e: Exception) {
             Log.w(TAG, "goBack() failed: ${e.message}")
         }
@@ -6631,11 +6666,133 @@ class BrowserViewModel : ViewModel() {
 
     fun goForward() {
         try {
-            val session = getActiveSession()
-            if (canGoForward && session.isOpen) session.goForward()
+            val activeTab = tabs.find { it.id == activeTabId } ?: return
+            val session = activeTab.session
+            val isHome = (currentUrl == "about:blank" || currentUrl.isEmpty())
+
+            if (isHome) {
+                val targetUrl = activeTab.lastWebUrl
+                if (!targetUrl.isNullOrEmpty() && targetUrl != "about:blank") {
+                    restoreWebPageFromHome(activeTab, targetUrl)
+                }
+            } else if (activeTab.canGoForwardInSession && session.isOpen) {
+                session.goForward(true)
+            }
         } catch (e: Exception) {
             Log.w(TAG, "goForward() failed: ${e.message}")
         }
+    }
+
+    fun returnToHomeScreen() {
+        val activeId = activeTabId ?: return
+        val idx = tabs.indexOfFirst { it.id == activeId }
+        if (idx == -1) return
+        val currentTab = tabs[idx]
+
+        val lastUrl = if (currentTab.url != "about:blank" && currentTab.url.isNotEmpty()) currentTab.url else currentTab.lastWebUrl
+        val lastTitle = if (currentTab.title != "New Tab") currentTab.title else currentTab.lastWebTitle
+
+        tabs[idx] = currentTab.copy(
+            url = "about:blank",
+            title = "New Tab",
+            lastWebUrl = lastUrl,
+            lastWebTitle = lastTitle,
+            canGoBack = false,
+            canGoForward = !lastUrl.isNullOrEmpty()
+        )
+        currentUrl = "about:blank"
+        canGoBack = false
+        canGoForward = !lastUrl.isNullOrEmpty()
+        searchSuggestions.clear()
+        historySuggestions.clear()
+    }
+
+    fun restoreWebPageFromHome(tab: TabState, targetUrl: String) {
+        val idx = tabs.indexOfFirst { it.id == tab.id }
+        if (idx != -1) {
+            val title = tab.lastWebTitle?.takeIf { it.isNotBlank() } ?: "Page"
+            tabs[idx] = tabs[idx].copy(
+                url = targetUrl,
+                title = title,
+                canGoBack = true,
+                canGoForward = tab.canGoForwardInSession
+            )
+        }
+        currentUrl = targetUrl
+        canGoBack = true
+        canGoForward = tab.canGoForwardInSession
+        val targetSession = tab.session
+        val ctx = appContext ?: MainActivity.getActiveActivity()?.applicationContext
+        if (ctx != null && !targetSession.isOpen) {
+            try { targetSession.open(getGeckoRuntime(ctx)) } catch (e: Exception) { Log.w(TAG, "Failed to open targetSession: ${e.message}") }
+        }
+        if (targetSession.isOpen && !tab.isUriLoaded) {
+            try {
+                targetSession.loadUri(targetUrl)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to loadUri in restoreWebPageFromHome: ${e.message}", e)
+            }
+        }
+    }
+
+    fun gotoHistoryIndex(index: Int) {
+        try {
+            if (index == -1) {
+                returnToHomeScreen()
+                return
+            }
+            val isHome = (currentUrl == "about:blank" || currentUrl.isEmpty())
+            if (isHome) {
+                val activeTab = tabs.find { it.id == activeTabId }
+                val targetUrl = activeTab?.lastWebUrl
+                if (!targetUrl.isNullOrEmpty() && targetUrl != "about:blank") {
+                    restoreWebPageFromHome(activeTab, targetUrl)
+                }
+                return
+            }
+            val session = getActiveSession()
+            if (session.isOpen) {
+                session.gotoHistoryIndex(index)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "gotoHistoryIndex($index) failed: ${e.message}")
+        }
+    }
+
+    fun getBackHistory(): List<SessionHistoryEntry> {
+        val hist = activeSessionHistory
+        val idx = activeHistoryIndex
+        val result = mutableListOf<SessionHistoryEntry>()
+        if (idx > 0 && hist.isNotEmpty()) {
+            for (i in (idx - 1) downTo 0) {
+                hist.getOrNull(i)?.let { result.add(it) }
+            }
+        }
+        val isHome = (currentUrl == "about:blank" || currentUrl.isEmpty())
+        if (!isHome && !isExternalIntentLaunch) {
+            result.add(SessionHistoryEntry(index = -1, url = "about:blank", title = "New Tab"))
+        }
+        return result
+    }
+
+    fun getForwardHistory(): List<SessionHistoryEntry> {
+        val hist = activeSessionHistory
+        val idx = activeHistoryIndex
+        val isHome = (currentUrl == "about:blank" || currentUrl.isEmpty())
+        if (isHome) {
+            val activeTab = tabs.find { it.id == activeTabId }
+            val lastUrl = activeTab?.lastWebUrl
+            if (!lastUrl.isNullOrEmpty() && lastUrl != "about:blank") {
+                return listOf(SessionHistoryEntry(index = idx.coerceAtLeast(0), url = lastUrl, title = activeTab.lastWebTitle ?: lastUrl))
+            }
+            return emptyList()
+        }
+        if (idx < 0 || idx >= hist.size - 1 || hist.isEmpty()) return emptyList()
+        val result = mutableListOf<SessionHistoryEntry>()
+        for (i in (idx + 1) until hist.size) {
+            hist.getOrNull(i)?.let { result.add(it) }
+        }
+        return result
     }
 
     fun reload() {
@@ -10007,7 +10164,7 @@ class BrowserViewModel : ViewModel() {
         loadPlayerSettings(context)
 
         val prefs = context.dataStore.data.first()
-        cookieBehavior = prefs[COOKIE_BEHAVIOR_KEY] ?: 3
+        cookieBehavior = prefs[COOKIE_BEHAVIOR_KEY] ?: 5
         doNotTrack = prefs[DO_NOT_TRACK_KEY] ?: true
         safeBrowsingLevel = prefs[SAFE_BROWSING_LEVEL_KEY] ?: 1
         preloadPages = prefs[PRELOAD_PAGES_KEY] ?: 1

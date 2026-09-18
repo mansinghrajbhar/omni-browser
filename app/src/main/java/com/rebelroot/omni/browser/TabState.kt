@@ -39,5 +39,21 @@ data class TabState(
     val isLazy: Boolean = false,
     /** ID of the opener tab that spawned this tab (e.g., auth popups via window.open).
      *  When this tab closes, the browser smoothly switches back to the opener tab. */
-    val parentId: String? = null
+    val parentId: String? = null,
+    /** Whether the underlying GeckoSession can navigate back in its web history stack. */
+    val canGoBackInSession: Boolean = false,
+    /** Whether the underlying GeckoSession can navigate forward in its web history stack. */
+    val canGoForwardInSession: Boolean = false,
+    /** The last real webpage URL loaded in this tab (preserved when visiting Home so Forward can restore it). */
+    val lastWebUrl: String? = null,
+    /** The title of the last real webpage URL loaded in this tab. */
+    val lastWebTitle: String? = null,
+    /** Current session history entries for long-press history jump navigation. */
+    val sessionHistory: List<SessionHistoryEntry> = emptyList()
+)
+
+data class SessionHistoryEntry(
+    val index: Int,
+    val url: String,
+    val title: String
 )

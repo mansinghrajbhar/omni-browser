@@ -522,10 +522,11 @@ fun PrivacySecurityScreen(
     // Cookie Behavior Choice Dialog
     if (showCookieBehaviorDialog) {
         val behaviors = listOf(
-            0 to "Allow all cookies",
-            3 to "Block third-party tracking cookies (Recommended)",
-            2 to "Block all third-party cookies",
-            1 to "Block all cookies"
+            0 to "Allow all cookies",                                         // ACCEPT_ALL
+            4 to "Block third-party tracking cookies (Recommended)",          // ACCEPT_NON_TRACKERS
+            5 to "Isolate third-party cookies (Total Cookie Protection)",     // ACCEPT_FIRST_PARTY_AND_ISOLATE_OTHERS (dFPI)
+            1 to "Block all third-party cookies",                             // ACCEPT_FIRST_PARTY
+            2 to "Block all cookies"                                          // ACCEPT_NONE
         )
         AlertDialog(
             onDismissRequest = { showCookieBehaviorDialog = false },

@@ -121,6 +121,7 @@ class AdBlockManagerTest {
 
     @Test
     fun testImmuneDomainsHelper() {
+        // Search engines and infrastructure remain immune
         assertTrue(AdBlockManager.isImmuneDomain("google.com"))
         assertTrue(AdBlockManager.isImmuneDomain("www.google.com"))
         assertTrue(AdBlockManager.isImmuneDomain("google.co.uk"))
@@ -135,8 +136,21 @@ class AdBlockManagerTest {
         assertTrue(AdBlockManager.isImmuneDomain("wikipedia.org"))
         assertTrue(AdBlockManager.isImmuneDomain("apple.com"))
         assertTrue(AdBlockManager.isImmuneDomain("github.com"))
-        assertTrue(AdBlockManager.isImmuneDomain("reddit.com"))
 
+        // Social media platforms are NO LONGER immune — their tracking subdomains must be blockable
+        assertFalse(AdBlockManager.isImmuneDomain("reddit.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("facebook.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("twitter.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("x.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("instagram.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("threads.net"))
+        assertFalse(AdBlockManager.isImmuneDomain("whatsapp.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("linkedin.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("netflix.com"))
+        assertFalse(AdBlockManager.isImmuneDomain("twitch.tv"))
+        assertFalse(AdBlockManager.isImmuneDomain("pinterest.com"))
+
+        // Ad/tracker domains must never be immune
         assertFalse(AdBlockManager.isImmuneDomain("adservice.google.com"))
         assertFalse(AdBlockManager.isImmuneDomain("googleadservices.com"))
         assertFalse(AdBlockManager.isImmuneDomain("doubleclick.net"))

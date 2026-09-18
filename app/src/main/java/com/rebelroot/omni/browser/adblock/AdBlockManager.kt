@@ -44,14 +44,22 @@ class AdBlockManager(private val context: Context) {
         private val DOMAIN_REGEX = Regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$")
         private val IPV4_REGEX = Regex("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$")
 
+        // Immune domains are ONLY for search engines, knowledge bases, and essential infrastructure
+        // that should never be whole-domain-blocked by filter list parsing.
+        // Social media platforms are deliberately EXCLUDED — their tracking subdomains
+        // (connect.facebook.net, platform.twitter.com, etc.) must remain blockable.
         private val IMMUNE_ROOT_DOMAINS = setOf(
+            // Search engines
             "google.com", "bing.com", "duckduckgo.com", "yahoo.com", "baidu.com", "yandex.com", "yandex.ru",
             "ecosia.org", "startpage.com", "brave.com", "kagi.com", "qwant.com",
+            // Knowledge & archives
             "wikipedia.org", "wikimedia.org", "archive.org",
+            // Essential platforms (immune only prevents whole-domain block from filter list parsing,
+            // NOT sub-resource tracking — that's handled by GeckoView's ContentBlocking)
             "youtube.com", "youtu.be", "spotify.com", "amazon.com", "apple.com", "icloud.com",
             "microsoft.com", "live.com", "office.com", "outlook.com", "github.com", "gitlab.com",
-            "reddit.com", "twitter.com", "x.com", "facebook.com", "instagram.com", "threads.net", "whatsapp.com",
-            "linkedin.com", "netflix.com", "twitch.tv", "pinterest.com", "cloudflare.com", "mozilla.org", "android.com"
+            // Infrastructure
+            "cloudflare.com", "mozilla.org", "android.com"
         )
 
         private val SEARCH_SHOPPING_REGIONAL_REGEX = Regex("^(?:www\\.)?(google|amazon|yahoo|yandex)\\.[a-z]{2,3}(?:\\.[a-z]{2})?$")
