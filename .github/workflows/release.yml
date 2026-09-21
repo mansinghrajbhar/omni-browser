@@ -8,8 +8,10 @@ on:
         required: false
         default: release
   push:
+    branches:
+      - main
     tags:
-      - 'v*'   # ONLY triggers on version tags like v1.3.0, v2.0.0-beta
+      - 'v*'
 
 jobs:
   release:
@@ -27,6 +29,7 @@ jobs:
           fetch-depth: 0    # default is 1; a shallow clone can't see previous tags
 
       - name: Fail if baseVersionCode did not increase
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           read_code() { grep -oP 'val baseVersionCode\s*=\s*\K\d+' "$1" || echo 0; }
           curr=$(read_code app/build.gradle.kts)
@@ -81,8 +84,8 @@ jobs:
 
       - name: Rename APKs
         run: |
-          export VERSION="${{ github.ref_name }}"
-          if [ -z "$VERSION" ]; then export VERSION="v1.2.6.3"; fi
+          VERSION=$(grep -oP 'val appVersionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          if [ -z "$VERSION" ]; then VERSION="${{ github.ref_name }}"; fi
           find app/build/outputs/apk/ -name "*.apk" -exec bash -c '
             file="$1"
             filename=$(basename "$file")
@@ -97,6 +100,14 @@ jobs:
           echo "✅ APKs renamed:"
           ls -lh app/build/outputs/apk/
 
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omni-browser-apks-${{ github.run_number }}
+          path: app/build/outputs/apk/omni-browser-*.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Wipe keystore from runner (security cleanup)
         if: always()
         run: |
@@ -104,6 +115,7 @@ jobs:
           echo "🔒 Keystore wiped from runner"
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: "Omni Browser ${{ github.ref_name }}"
