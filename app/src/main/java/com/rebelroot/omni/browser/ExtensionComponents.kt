@@ -304,7 +304,8 @@ fun UserExtensionItemCard(
         try { extension.metaData?.version } catch (e: Exception) { null }
     }
 
-    val onOpenAction = onPopupClick ?: onOptionsClick
+    val onSettingsAction = onOptionsClick ?: onPopupClick
+    val onOpenAction = onPopupClick ?: onSettingsAction
     var showMenu by remember { mutableStateOf(false) }
 
     Surface(
@@ -467,7 +468,7 @@ fun UserExtensionItemCard(
                                     text = { Text(stringResource(R.string.ext_open_settings), fontSize = 12.sp) },
                                     onClick = {
                                         showMenu = false
-                                        onOpenAction()
+                                        onSettingsAction()
                                     },
                                     leadingIcon = {
                                         Icon(
@@ -667,7 +668,8 @@ fun UserExtensionGridCard(
         try { extension.metaData?.version } catch (e: Exception) { null }
     }
 
-    val onOpenAction = onPopupClick ?: onOptionsClick
+    val onSettingsAction = onOptionsClick ?: onPopupClick
+    val onOpenAction = onPopupClick ?: onSettingsAction
     var showMenu by remember { mutableStateOf(false) }
 
     Surface(
@@ -716,7 +718,7 @@ fun UserExtensionGridCard(
                             text = { Text("Open settings", fontSize = 12.sp) },
                             onClick = {
                                 showMenu = false
-                                onOpenAction()
+                                onSettingsAction()
                             },
                             leadingIcon = {
                                 Icon(
