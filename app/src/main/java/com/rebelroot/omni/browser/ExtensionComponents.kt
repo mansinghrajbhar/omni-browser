@@ -468,7 +468,7 @@ fun UserExtensionItemCard(
                                     text = { Text(stringResource(R.string.ext_open_settings), fontSize = 12.sp) },
                                     onClick = {
                                         showMenu = false
-                                        onSettingsAction()
+                                        onSettingsAction?.invoke()
                                     },
                                     leadingIcon = {
                                         Icon(
