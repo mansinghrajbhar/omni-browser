@@ -718,7 +718,7 @@ fun UserExtensionGridCard(
                             text = { Text("Open settings", fontSize = 12.sp) },
                             onClick = {
                                 showMenu = false
-                                onSettingsAction()
+                                onSettingsAction?.invoke()
                             },
                             leadingIcon = {
                                 Icon(
